@@ -32,7 +32,7 @@ func (g GitHubIssue) getMilestoneId(ctx context.Context, client *github.Client, 
 
 	for _, m := range milestones {
 		title := *m.Title
-		if title[1:] == milestone && strings.EqualFold(*m.State, "closed") {
+		if title[1:] == milestone && !strings.EqualFold(*m.State, "closed") {
 			return m.Number, nil
 		}
 	}
