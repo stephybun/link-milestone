@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/google/go-github/github"
 	"github.com/spf13/viper"
+	"golang.org/x/mod/semver"
 	"golang.org/x/oauth2"
 )
 
@@ -24,20 +24,36 @@ type GitHubIssue struct {
 	Id int
 }
 
-func (g GitHubIssue) getMilestoneId(ctx context.Context, client *github.Client, milestone string) (*int, error) {
-	milestones, _, err := client.Issues.ListMilestones(ctx, g.Owner, g.Repo, nil)
+func (g GitHubIssue) getMilestoneId(ctx context.Context, client *github.Client) (*int, error) {
+	ghMilestones, _, err := client.Issues.ListMilestones(ctx, g.Owner, g.Repo, nil)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving list of milestones: %+v", err)
 	}
 
-	for _, m := range milestones {
+	milestones := make(map[string]int)
+
+	for _, m := range ghMilestones {
 		title := *m.Title
-		if title[1:] == milestone && !strings.EqualFold(*m.State, "closed") {
-			return m.Number, nil
+		r := regexp.MustCompile(`v[0-9]\.[0-9]+\.[0-9]`)
+		if r.MatchString(title) && !strings.EqualFold(*m.State, "closed") {
+			milestones[title[1:]] = *m.Number
 		}
 	}
+
 	// TODO create milestone here?
-	return nil, nil
+	if len(milestones) == 0 {
+		return nil, fmt.Errorf("no open version milestones were found")
+	}
+
+	var versions []string
+	for title, _ := range milestones {
+		versions = append(versions, title)
+	}
+	semver.Sort(versions)
+	milestoneId := milestones[versions[0]]
+
+	log.Printf("[DEBUG] lowest open version milestone: %s", versions[0])
+	return &milestoneId, nil
 }
 
 func (g GitHubIssue) getLinkedIssue(ctx context.Context, client *github.Client) (*int, error) {
@@ -77,32 +93,9 @@ func (g GitHubIssue) updateMilestone(ctx context.Context, client *github.Client,
 		}
 		return nil
 	}
+
 	log.Printf("[DEBUG] github issue #%d already has milestone %s", g.Id, *issue.Milestone.Title)
 	return nil
-}
-
-func getMilestone() (*string, error) {
-	f, err := os.Open("CHANGELOG.md")
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	milestone := ""
-
-	for scanner.Scan() {
-		if strings.Contains(scanner.Text(), "Unreleased") {
-			for _, s := range strings.Split(scanner.Text(), " ") {
-				r := regexp.MustCompile(`^[0-9].[0-9]+.[0-9]`)
-				if r.MatchString(s) {
-					milestone = s
-				}
-			}
-			break
-		}
-	}
-	return &milestone, nil
 }
 
 func newGitHubClient(token string) (*github.Client, context.Context) {
@@ -127,20 +120,12 @@ func run() error {
 	pr := GitHubIssue{owner, repo, prId}
 	client, ctx := newGitHubClient(token)
 
-	milestone, err := getMilestone()
-	if err != nil {
-		return fmt.Errorf("getting latest milestone from CHANGELOG.md: %s", err)
-	}
-	if milestone == nil {
-		return fmt.Errorf("no unreleased milestone could be found in CHANGELOG")
-	}
-
-	milestoneId, err := pr.getMilestoneId(ctx, client, *milestone)
+	milestoneId, err := pr.getMilestoneId(ctx, client)
 	if err != nil {
 		return fmt.Errorf("getting milestone id: %s", err)
 	}
 	if milestoneId == nil {
-		log.Printf("[DEBUG] no milestone for %s exists in github, or it has been closed", *milestone)
+		log.Printf("[DEBUG] no open version milestones exists in github")
 		return nil
 	}
 
