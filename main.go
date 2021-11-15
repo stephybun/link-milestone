@@ -34,7 +34,7 @@ func (g GitHubIssue) getMilestoneId(ctx context.Context, client *github.Client) 
 
 	for _, m := range ghMilestones {
 		title := *m.Title
-		r := regexp.MustCompile(`v[0-9]\.[0-9]+\.[0-9]`)
+		r := regexp.MustCompile(`v[0-9]\.[0-9]+\.0`)
 		if r.MatchString(title) && !strings.EqualFold(*m.State, "closed") {
 			milestones[title[1:]] = *m.Number
 		}
