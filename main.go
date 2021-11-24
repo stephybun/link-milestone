@@ -61,15 +61,14 @@ func (g GitHubIssue) getLinkedIssue(ctx context.Context, client *github.Client) 
 
 	if resp.Body != nil {
 		bodySplit := strings.Split(*resp.Body, " ")
-		keywords := regexp.MustCompile(`^[fF]ix(e)?(s)?(d)?$|[cC]lose(s)?(d)?$|[rR]esolve(s)?(d)?$`)
+		keywords := regexp.MustCompile(`[fF]ix(e)?(s)?(d)?$|[cC]lose(s)?(d)?$|[rR]esolve(s)?(d)?$`)
 		issue := regexp.MustCompile(`^#[0-9]+`)
-
 		for i, s := range bodySplit {
 			if keywords.MatchString(s) {
 				// check whether next element is the issue number
 				next := bodySplit[i + 1]
-				if issue.MatchString(next) {
-					id, _ := strconv.Atoi(next[1:])
+				if match := issue.FindString(next); match != "" {
+					id, _ := strconv.Atoi(match[1:])
 					return &id, nil
 				}
 			}
@@ -137,6 +136,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("getting linked issues for #%d: %+v", pr.Id, err)
 	}
+
 	if liId != nil {
 		li := GitHubIssue{owner, repo, *liId}
 		if err = li.updateMilestone(ctx, client, *milestoneId); err != nil {
